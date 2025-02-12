@@ -1,3 +1,5 @@
 ## 0.0.1
 
-* TODO: Describe initial release.
+* Initial release.
+* Add picture in picture support for Android.
+* Add picture in picture support for iOS.

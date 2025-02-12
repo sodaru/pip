@@ -5,13 +5,13 @@
 Pod::Spec.new do |s|
   s.name             = 'pip'
   s.version          = '0.0.1'
-  s.summary          = 'A new Flutter plugin project.'
+  s.summary          = 'A plugin for Picture in Picture.'
   s.description      = <<-DESC
-A new Flutter plugin project.
+A plugin for Picture in Picture.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/opentraa/pip'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'Sylar' => 'peilinok@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'
@@ -25,5 +25,5 @@ A new Flutter plugin project.
   # required reason APIs, update the PrivacyInfo.xcprivacy file to describe your
   # plugin's privacy impact, and then uncomment this line. For more information,
   # see https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
-  # s.resource_bundles = {'pip_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
+  # s.resource_bundles = {'flutter_pip_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
 end

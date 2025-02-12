@@ -15,11 +15,11 @@ import 'package:pip/pip.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('getPlatformVersion test', (WidgetTester tester) async {
+  testWidgets('isActived test', (WidgetTester tester) async {
     final Pip plugin = Pip();
-    final String? version = await plugin.getPlatformVersion();
+    final bool isActived = await plugin.isActived();
     // The version string depends on the host platform running the test, so
     // just assert that some non-empty string is returned.
-    expect(version?.isNotEmpty, true);
+    expect(isActived, false);
   });
 }

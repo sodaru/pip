@@ -1,7 +1,8 @@
 name: pip
-description: "A new Flutter plugin project."
+description: "A plugin for Picture in Picture."
 version: 0.0.1
-homepage:
+homepage: https://github.com/opentraa/pip
+repository: https://github.com/opentraa/pip
 
 environment:
   sdk: ^3.5.4
