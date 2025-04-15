@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
 
+import 'native_view.dart';
+
 import 'package:flutter/services.dart';
 import 'package:pip/pip.dart';
+import 'package:native_plugin/native_plugin.dart';
 
 void main() {
   runApp(const MyApp());
@@ -36,11 +39,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isPipSupported = false;
   bool _isPipAutoEnterSupported = false;
   bool _isPipActived = false;
+  int _playerView = 0;
+  int _pipContentView = 0;
+  int _currentImageIndex = 0;
+  Timer? _imageTimer;
+
+  final List<String> _imagePaths = [
+    'images/PIP1.png',
+    'images/PIP2.png',
+    'images/PIP3.png',
+  ];
 
   // Add controllers for input fields
   final _aspectRatioXController = TextEditingController(text: '16');
   final _aspectRatioYController = TextEditingController(text: '9');
   bool _autoEnterEnabled = false;
+
+  final _nativePlugin = NativePlugin();
 
   AppLifecycleState _lastAppLifecycleState = AppLifecycleState.resumed;
 
@@ -49,10 +64,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     initPlatformState();
+    if (Platform.isAndroid) {
+      _startImageTimer();
+    }
+  }
+
+  void _startImageTimer() {
+    _imageTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      setState(() {
+        _currentImageIndex = (_currentImageIndex + 1) % _imagePaths.length;
+      });
+    });
   }
 
   @override
   void dispose() {
+    if (Platform.isIOS && _pipContentView != 0) {
+      _nativePlugin.disposePipContentView(_pipContentView);
+    }
+
+    _imageTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _aspectRatioXController.dispose();
     _aspectRatioYController.dispose();
@@ -109,6 +140,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     bool pipIsAutoEnterSupported = false;
     bool isPipActived = false;
     try {
+      var platformVersion = await _nativePlugin.getPlatformVersion();
+      print('[platformVersion]: $platformVersion');
       pipIsSupported = await _pip.isSupported();
       pipIsAutoEnterSupported = await _pip.isAutoEnterSupported();
       isPipActived = await _pip.isActived();
@@ -142,22 +175,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _isPipSupported = pipIsSupported;
       _isPipAutoEnterSupported = pipIsAutoEnterSupported;
       _isPipActived = isPipActived;
+
+      // set the autoEnterEnabled to true if the pip is auto enter supported
+      _autoEnterEnabled = pipIsAutoEnterSupported;
     });
   }
 
   Future<void> _setupPip() async {
     if (_formKey.currentState!.validate()) {
+      if (Platform.isIOS && _pipContentView == 0) {
+        _pipContentView = await _nativePlugin.createPipContentView();
+        print('[createPipContentView]: $_pipContentView');
+
+        setState(() {
+          _pipContentView = _pipContentView;
+        });
+      }
       final options = PipOptions(
         autoEnterEnabled: _autoEnterEnabled,
+
+        // android only
         aspectRatioX: int.tryParse(_aspectRatioXController.text),
         aspectRatioY: int.tryParse(_aspectRatioYController.text),
+
+        // ios only
+        contentView: _pipContentView,
+        sourceContentView: _playerView,
+        preferredContentWidth: 900,
+        preferredContentHeight: 1600,
+        controlStyle: 2,
       );
 
       try {
         final success = await _pip.setup(options);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('PiP Setup ${success ? 'successful' : 'failed'}')),
+              content: Text(
+                  'PiP Setup ${success ? 'successful' : 'failed'}')),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -167,125 +221,177 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Widget _buildPipView() {
+    if (!Platform.isAndroid) {
+      return SizedBox(
+        height: 200,
+        child: NativeWidget(
+          onPlatformViewCreated: (id, internalViewId) {
+            print('Platform view created: $id, internalViewId: $internalViewId');
+            setState(() {
+              _playerView = internalViewId;
+            });
+          },
+        ),
+      );
+    }
+
+    return Center(
+      child: Builder(
+        builder: (context) {
+          try {
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                return Image.asset(
+                  _imagePaths[_currentImageIndex],
+                  width: _isPipActived ? constraints.maxWidth : null,
+                  height: _isPipActived ? constraints.maxHeight : 200,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    print('Error loading image: $error');
+                    print('Stack trace: $stackTrace');
+                    return const Text('Error loading image');
+                  },
+                );
+              },
+            );
+          } catch (e) {
+            print('Exception while loading image: $e');
+            return Text('Exception: $e');
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildPipFunctions() {
+    return Wrap(
+      spacing: 8.0,
+      runSpacing: 8.0,
+      alignment: WrapAlignment.start,
+      children: [
+        Text(
+          'Supported: $_isPipSupported\n'
+          'Auto Enter Supported: $_isPipAutoEnterSupported\n'
+          'Actived: $_isPipActived',
+          style: const TextStyle(fontSize: 16),
+        ),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Auto Enter Enabled'),
+          value: _autoEnterEnabled,
+          onChanged: (value) =>
+              setState(() => _autoEnterEnabled = value ?? false),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _aspectRatioXController,
+                decoration: const InputDecoration(labelText: 'Aspect Ratio X'),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || int.tryParse(value) == null) {
+                    return 'Please enter a valid number';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextFormField(
+                controller: _aspectRatioYController,
+                decoration: const InputDecoration(labelText: 'Aspect Ratio Y'),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || int.tryParse(value) == null) {
+                    return 'Please enter a valid number';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ),
+        ElevatedButton(
+          onPressed: _setupPip,
+          child: const Text('Setup PiP'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            try {
+              final success = await _pip.start();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                    content:
+                        Text('PiP Start ${success ? 'successful' : 'failed'}')),
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('PiP Start error: $e')),
+              );
+            }
+          },
+          child: const Text('Start PiP'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            try {
+              await _pip.stop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('PiP Stopped')),
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('PiP Stop error: $e')),
+              );
+            }
+          },
+          child: const Text('Stop PiP'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            try {
+              await _pip.dispose();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('PiP Disposed')),
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('PiP Dispose error: $e')),
+              );
+            }
+          },
+          child: const Text('Dispose PiP'),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Flutter PiP Demo'),
-      ),
       body: _isPipSupported
-          ? Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'PiP Status:\n'
-                      'Supported: $_isPipSupported\n'
-                      'Auto Enter Supported: $_isPipAutoEnterSupported\n'
-                      'Actived: $_isPipActived',
-                      style: const TextStyle(fontSize: 16),
+          ? (Platform.isAndroid && _isPipActived)
+              ? _buildPipView()
+              : SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildPipView(),
+                          if (!(Platform.isAndroid && _isPipActived)) ...[
+                            _buildPipFunctions(),
+                          ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 20),
-                    CheckboxListTile(
-                      title: const Text('Auto Enter Enabled'),
-                      value: _autoEnterEnabled,
-                      onChanged: (value) =>
-                          setState(() => _autoEnterEnabled = value ?? false),
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _aspectRatioXController,
-                      decoration:
-                          const InputDecoration(labelText: 'Aspect Ratio X'),
-                      keyboardType: TextInputType.number,
-                      validator: (value) {
-                        if (value == null || int.tryParse(value) == null) {
-                          return 'Please enter a valid number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _aspectRatioYController,
-                      decoration:
-                          const InputDecoration(labelText: 'Aspect Ratio Y'),
-                      keyboardType: TextInputType.number,
-                      validator: (value) {
-                        if (value == null || int.tryParse(value) == null) {
-                          return 'Please enter a valid number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    Wrap(
-                      spacing: 8.0, // 水平间距
-                      runSpacing: 8.0, // 垂直间距
-                      alignment: WrapAlignment.start,
-                      children: [
-                        ElevatedButton(
-                          onPressed: _setupPip,
-                          child: const Text('Setup PiP'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            try {
-                              final success = await _pip.start();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text(
-                                        'PiP Start ${success ? 'successful' : 'failed'}')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text('PiP Start error: $e')),
-                              );
-                            }
-                          },
-                          child: const Text('Start PiP'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            try {
-                              await _pip.stop();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('PiP Stopped')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('PiP Stop error: $e')),
-                              );
-                            }
-                          },
-                          child: const Text('Stop PiP'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            try {
-                              await _pip.dispose();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('PiP Disposed')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text('PiP Dispose error: $e')),
-                              );
-                            }
-                          },
-                          child: const Text('Dispose PiP'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            )
+                  ),
+                )
           : const Center(
               child: Text('Pip is not supported'),
             ),
