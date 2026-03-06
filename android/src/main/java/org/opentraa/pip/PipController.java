@@ -288,9 +288,18 @@ public class PipController implements PipActivity.PipActivityListener {
       // only call setPictureInPictureParams to clear flag setAutoEnterEnabled
       // when setAutoEnterEnabled is supported
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        try{
         activity.setPictureInPictureParams(new PictureInPictureParams.Builder()
                                                .setAutoEnterEnabled(false)
                                                .build());
+        } catch (IllegalStateException e) {
+          String message = e.getMessage();
+          if (message == null || !message.contains("Can't find activity for token")) {
+            // this exception is caused by the activity is already destroyed, 
+            // we can just ignore it, otherwise we need to throw it to avoid hiding other potential exceptions
+            throw e;
+          }
+        }
       }
     }
 
